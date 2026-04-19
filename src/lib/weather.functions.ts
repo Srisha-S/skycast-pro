@@ -25,8 +25,19 @@ async function owmFetch(path: string, params: Record<string, string | number>) {
   url.searchParams.set("appid", key());
   const res = await fetch(url.toString());
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        "Your OpenWeatherMap API key was rejected. New keys can take up to 2 hours to activate after sign-up. Please verify the key at https://home.openweathermap.org/api_keys and try again.",
+      );
+    }
+    if (res.status === 404) {
+      throw new Error("Location not found. Please check the spelling or try a nearby city.");
+    }
+    if (res.status === 429) {
+      throw new Error("Rate limit reached on OpenWeatherMap. Please wait a moment and try again.");
+    }
     const text = await res.text().catch(() => "");
-    throw new Error(`OpenWeather ${res.status}: ${text || res.statusText}`);
+    throw new Error(`Weather service error (${res.status}): ${text || res.statusText}`);
   }
   return res.json();
 }
