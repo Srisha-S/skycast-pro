@@ -11,129 +11,223 @@ import type {
   Units,
 } from "@/lib/weather-types";
 
-const BASE = "https://api.openweathermap.org";
-
-function key() {
-  const k = process.env.OPENWEATHER_API_KEY;
-  if (!k) throw new Error("OPENWEATHER_API_KEY is not configured");
-  return k;
-}
-
-async function owmFetch(path: string, params: Record<string, string | number>) {
-  const url = new URL(`${BASE}${path}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
-  url.searchParams.set("appid", key());
-  const res = await fetch(url.toString());
+// ---------- HTTP helper ----------
+async function jsonFetch<T>(url: string, label: string): Promise<T> {
+  const res = await fetch(url);
   if (!res.ok) {
-    if (res.status === 401) {
-      throw new Error(
-        "Your OpenWeatherMap API key was rejected. New keys can take up to 2 hours to activate after sign-up. Please verify the key at https://home.openweathermap.org/api_keys and try again.",
-      );
-    }
-    if (res.status === 404) {
-      throw new Error("Location not found. Please check the spelling or try a nearby city.");
-    }
-    if (res.status === 429) {
-      throw new Error("Rate limit reached on OpenWeatherMap. Please wait a moment and try again.");
-    }
     const text = await res.text().catch(() => "");
-    throw new Error(`Weather service error (${res.status}): ${text || res.statusText}`);
+    if (res.status === 404) throw new Error("Location not found. Please try another search.");
+    if (res.status === 429) throw new Error("Too many requests. Please wait a moment and try again.");
+    throw new Error(`${label} error (${res.status}): ${text || res.statusText}`);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
-// ----- Geocoding -----
+// ---------- Geocoding (Open-Meteo, no key) ----------
 async function geocodeByCity(city: string): Promise<GeoLocation> {
-  const data: any[] = await owmFetch("/geo/1.0/direct", { q: city, limit: 1 });
-  if (!data.length) throw new Error(`No location found for "${city}"`);
-  const g = data[0];
-  return { name: g.name, country: g.country, state: g.state, lat: g.lat, lon: g.lon };
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+  const data = await jsonFetch<{ results?: Array<any> }>(url, "Geocoding");
+  const r = data.results?.[0];
+  if (!r) throw new Error(`No location found for "${city}".`);
+  return {
+    name: r.name,
+    country: r.country_code ?? r.country ?? "",
+    state: r.admin1,
+    lat: r.latitude,
+    lon: r.longitude,
+  };
 }
 
 async function geocodeByZip(zip: string): Promise<GeoLocation> {
-  // Accepts "12345" or "12345,US" (defaults to US if no country given)
-  const q = zip.includes(",") ? zip : `${zip},US`;
-  const data: any = await owmFetch("/geo/1.0/zip", { zip: q });
-  return { name: data.name, country: data.country, lat: data.lat, lon: data.lon };
+  // Open-Meteo geocoding accepts postal codes via the same name= query
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(zip)}&count=1&language=en&format=json`;
+  const data = await jsonFetch<{ results?: Array<any> }>(url, "Geocoding");
+  const r = data.results?.[0];
+  if (!r) throw new Error(`No location found for ZIP/PIN "${zip}".`);
+  return {
+    name: r.name,
+    country: r.country_code ?? r.country ?? "",
+    state: r.admin1,
+    lat: r.latitude,
+    lon: r.longitude,
+  };
 }
 
 async function reverseGeocode(lat: number, lon: number): Promise<GeoLocation> {
-  const data: any[] = await owmFetch("/geo/1.0/reverse", { lat, lon, limit: 1 });
-  if (data.length) {
-    const g = data[0];
-    return { name: g.name, country: g.country, state: g.state, lat, lon };
+  // BigDataCloud offers a free, no-key reverse geocoding endpoint
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+    const data = await jsonFetch<any>(url, "Reverse geocoding");
+    return {
+      name: data.city || data.locality || data.principalSubdivision || "Current location",
+      country: data.countryCode || "",
+      state: data.principalSubdivision,
+      lat,
+      lon,
+    };
+  } catch {
+    return { name: "Current location", country: "", lat, lon };
   }
-  return { name: "Current location", country: "", lat, lon };
 }
 
-// ----- Bundle assembly -----
+// ---------- Open-Meteo weather code -> OpenWeather-like icon/description ----------
+// Reuses OpenWeatherMap's icon CDN since the UI already references it.
+function mapWeatherCode(code: number, isDay: boolean): {
+  id: number;
+  main: string;
+  description: string;
+  icon: string;
+} {
+  const d = isDay ? "d" : "n";
+  // [main, description, owm-id, owm-icon-prefix]
+  const table: Record<number, [string, string, number, string]> = {
+    0: ["Clear", "clear sky", 800, "01"],
+    1: ["Clear", "mainly clear", 800, "01"],
+    2: ["Clouds", "partly cloudy", 802, "02"],
+    3: ["Clouds", "overcast", 804, "04"],
+    45: ["Mist", "fog", 741, "50"],
+    48: ["Mist", "depositing rime fog", 741, "50"],
+    51: ["Drizzle", "light drizzle", 300, "09"],
+    53: ["Drizzle", "moderate drizzle", 301, "09"],
+    55: ["Drizzle", "dense drizzle", 302, "09"],
+    56: ["Drizzle", "freezing drizzle", 511, "09"],
+    57: ["Drizzle", "freezing drizzle", 511, "09"],
+    61: ["Rain", "light rain", 500, "10"],
+    63: ["Rain", "moderate rain", 501, "10"],
+    65: ["Rain", "heavy rain", 502, "10"],
+    66: ["Rain", "freezing rain", 511, "13"],
+    67: ["Rain", "freezing rain", 511, "13"],
+    71: ["Snow", "light snow", 600, "13"],
+    73: ["Snow", "moderate snow", 601, "13"],
+    75: ["Snow", "heavy snow", 602, "13"],
+    77: ["Snow", "snow grains", 600, "13"],
+    80: ["Rain", "rain showers", 520, "09"],
+    81: ["Rain", "rain showers", 521, "09"],
+    82: ["Rain", "violent rain showers", 522, "09"],
+    85: ["Snow", "snow showers", 620, "13"],
+    86: ["Snow", "heavy snow showers", 622, "13"],
+    95: ["Thunderstorm", "thunderstorm", 200, "11"],
+    96: ["Thunderstorm", "thunderstorm with hail", 201, "11"],
+    99: ["Thunderstorm", "severe thunderstorm with hail", 202, "11"],
+  };
+  const [main, description, id, prefix] = table[code] ?? ["Clear", "unknown", 800, "01"];
+  return { id, main, description, icon: `${prefix}${d}` };
+}
+
+// ---------- Bundle assembly ----------
 async function buildBundle(loc: GeoLocation, units: Units): Promise<WeatherBundle> {
-  const [cur, fc, air] = await Promise.all([
-    owmFetch("/data/2.5/weather", { lat: loc.lat, lon: loc.lon, units }),
-    owmFetch("/data/2.5/forecast", { lat: loc.lat, lon: loc.lon, units }),
-    owmFetch("/data/2.5/air_pollution", { lat: loc.lat, lon: loc.lon }).catch(() => null),
+  const tempUnit = units === "metric" ? "celsius" : "fahrenheit";
+  const windUnit = units === "metric" ? "ms" : "mph"; // m/s in metric, mph in imperial
+  const past = 5;
+
+  const forecastUrl =
+    `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}` +
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_direction_10m,weather_code,cloud_cover,is_day` +
+    `&hourly=temperature_2m,precipitation_probability,weather_code,is_day` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset` +
+    `&temperature_unit=${tempUnit}&wind_speed_unit=${windUnit}&timezone=auto&forecast_days=7&past_days=${past}`;
+
+  const aqiUrl =
+    `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${loc.lat}&longitude=${loc.lon}` +
+    `&current=european_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
+
+  const [fc, air] = await Promise.all([
+    jsonFetch<any>(forecastUrl, "Weather"),
+    jsonFetch<any>(aqiUrl, "Air quality").catch(() => null),
   ]);
 
+  const cur = fc.current;
+  const isDay = !!cur.is_day;
+  const visibility = 10000; // Open-Meteo free tier doesn't include visibility — use a sensible default
+  const todayDaily = fc.daily;
+  const sunrise = Math.floor(new Date(todayDaily.sunrise[past]).getTime() / 1000);
+  const sunset = Math.floor(new Date(todayDaily.sunset[past]).getTime() / 1000);
+
   const current: CurrentWeather = {
-    temp: cur.main.temp,
-    feels_like: cur.main.feels_like,
-    humidity: cur.main.humidity,
-    pressure: cur.main.pressure,
-    wind_speed: cur.wind?.speed ?? 0,
-    wind_deg: cur.wind?.deg ?? 0,
-    clouds: cur.clouds?.all ?? 0,
-    visibility: cur.visibility ?? 0,
-    sunrise: cur.sys?.sunrise ?? 0,
-    sunset: cur.sys?.sunset ?? 0,
-    dt: cur.dt,
-    weather: cur.weather[0],
+    temp: cur.temperature_2m,
+    feels_like: cur.apparent_temperature,
+    humidity: cur.relative_humidity_2m,
+    pressure: Math.round(cur.pressure_msl),
+    wind_speed: cur.wind_speed_10m,
+    wind_deg: cur.wind_direction_10m,
+    clouds: cur.cloud_cover,
+    visibility,
+    sunrise,
+    sunset,
+    dt: Math.floor(new Date(cur.time).getTime() / 1000),
+    weather: mapWeatherCode(cur.weather_code, isDay),
   };
 
-  // Hourly: take next 8 entries (24h, 3h steps)
-  const hourly: HourlyEntry[] = (fc.list as any[]).slice(0, 8).map((h) => ({
-    dt: h.dt,
-    temp: h.main.temp,
-    pop: h.pop ?? 0,
-    weather: h.weather[0],
-  }));
-
-  // Daily: group by date -> min/max
-  const byDay = new Map<string, any[]>();
-  for (const item of fc.list as any[]) {
-    const day = new Date(item.dt * 1000).toISOString().slice(0, 10);
-    if (!byDay.has(day)) byDay.set(day, []);
-    byDay.get(day)!.push(item);
-  }
-  const daily: DailyEntry[] = [];
-  for (const [, items] of byDay) {
-    const temps = items.map((i) => i.main.temp);
-    const mid = items[Math.floor(items.length / 2)];
-    daily.push({
-      dt: items[0].dt,
-      temp_min: Math.min(...items.map((i) => i.main.temp_min ?? Math.min(...temps))),
-      temp_max: Math.max(...items.map((i) => i.main.temp_max ?? Math.max(...temps))),
-      pop: Math.max(...items.map((i) => i.pop ?? 0)),
-      humidity: mid.main.humidity,
-      wind_speed: mid.wind?.speed ?? 0,
-      weather: mid.weather[0],
+  // Hourly: next 24 hours starting from current time
+  const nowMs = Date.now();
+  const hours: HourlyEntry[] = [];
+  const times: string[] = fc.hourly.time;
+  const temps: number[] = fc.hourly.temperature_2m;
+  const codes: number[] = fc.hourly.weather_code;
+  const pops: number[] = fc.hourly.precipitation_probability ?? [];
+  const days: number[] = fc.hourly.is_day ?? [];
+  const startIdx = times.findIndex((t) => new Date(t).getTime() >= nowMs);
+  for (let i = Math.max(0, startIdx); i < times.length && hours.length < 24; i++) {
+    hours.push({
+      dt: Math.floor(new Date(times[i]).getTime() / 1000),
+      temp: temps[i],
+      pop: (pops[i] ?? 0) / 100,
+      weather: mapWeatherCode(codes[i], days[i] === 1),
     });
-    if (daily.length >= 7) break;
   }
 
-  let aqi: AqiData | null = null;
-  if (air && air.list?.[0]) {
-    aqi = { aqi: air.list[0].main.aqi, components: air.list[0].components };
+  // Daily: 7 days starting today (skip past_days)
+  const daily: DailyEntry[] = [];
+  for (let i = past; i < past + 7 && i < todayDaily.time.length; i++) {
+    daily.push({
+      dt: Math.floor(new Date(todayDaily.time[i]).getTime() / 1000),
+      temp_min: todayDaily.temperature_2m_min[i],
+      temp_max: todayDaily.temperature_2m_max[i],
+      pop: (todayDaily.precipitation_probability_max[i] ?? 0) / 100,
+      humidity: cur.relative_humidity_2m, // approximate; daily humidity not in this query
+      wind_speed: todayDaily.wind_speed_10m_max[i],
+      weather: mapWeatherCode(todayDaily.weather_code[i], true),
+    });
   }
 
-  // Historical (last 5 days) — use free API by sampling AQI history endpoint dates;
-  // OpenWeather history is paid. We synthesize a "recent" view from forecast's already-past slots
-  // when available; otherwise leave empty. Most installations on free tier won't have history.
+  // Historical: previous `past` days from same daily array
   const history: HistoryDay[] = [];
+  for (let i = 0; i < past; i++) {
+    history.push({
+      dt: Math.floor(new Date(todayDaily.time[i]).getTime() / 1000),
+      temp_min: todayDaily.temperature_2m_min[i],
+      temp_max: todayDaily.temperature_2m_max[i],
+      weather: mapWeatherCode(todayDaily.weather_code[i], true),
+    });
+  }
 
-  return { location: loc, units, current, hourly, daily, aqi, history };
+  // AQI: convert European AQI (0-100+) into the 1-5 OWM-style band the UI expects
+  let aqi: AqiData | null = null;
+  if (air?.current) {
+    const eu = air.current.european_aqi as number;
+    let band: number;
+    if (eu <= 20) band = 1;
+    else if (eu <= 40) band = 2;
+    else if (eu <= 60) band = 3;
+    else if (eu <= 80) band = 4;
+    else band = 5;
+    aqi = {
+      aqi: band,
+      components: {
+        co: air.current.carbon_monoxide ?? 0,
+        no2: air.current.nitrogen_dioxide ?? 0,
+        o3: air.current.ozone ?? 0,
+        so2: air.current.sulphur_dioxide ?? 0,
+        pm2_5: air.current.pm2_5 ?? 0,
+        pm10: air.current.pm10 ?? 0,
+      },
+    };
+  }
+
+  return { location: loc, units, current, hourly: hours, daily, aqi, history };
 }
 
-// ----- Server Functions -----
+// ---------- Server function ----------
 const fetchSchema = z.object({
   mode: z.enum(["city", "zip", "coords"]),
   city: z.string().min(1).max(120).optional(),
