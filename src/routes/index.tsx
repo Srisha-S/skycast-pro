@@ -176,7 +176,7 @@ function SkyCastPro() {
   const isFav = bundle ? favorites.has(bundle.location) : false;
 
   return (
-    <main className="min-h-screen px-3 sm:px-6 py-5 sm:py-8 max-w-7xl mx-auto">
+    <main className="min-h-screen px-3 sm:px-6 py-5 sm:py-8 max-w-7xl mx-auto overflow-x-hidden">
       <header className="flex items-center justify-between gap-3 mb-5 sm:mb-8">
         <div className="flex items-center gap-2.5">
           <div className="h-10 w-10 rounded-xl glass-strong flex items-center justify-center">
