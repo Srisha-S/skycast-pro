@@ -60,17 +60,17 @@ export function CurrentWeatherCard({ bundle, isFavorite, onToggleFavorite, onSha
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4 -mx-2">
+        <div className="flex items-center gap-2 sm:gap-4 -mx-2 min-w-0">
           <img
             src={iconUrl}
             alt={current.weather.description}
-            className="h-32 w-32 sm:h-40 sm:w-40 drop-shadow-2xl"
+            className="h-24 w-24 sm:h-40 sm:w-40 drop-shadow-2xl shrink-0"
           />
-          <div className="flex-1">
-            <div className="text-6xl sm:text-7xl font-bold tracking-tight text-shadow-soft">
+          <div className="flex-1 min-w-0">
+            <div className="text-5xl sm:text-7xl font-bold tracking-tight text-shadow-soft">
               {formatTemp(current.temp, units)}
             </div>
-            <div className="text-base sm:text-lg capitalize text-muted-foreground mt-1">
+            <div className="text-base sm:text-lg capitalize text-muted-foreground mt-1 truncate">
               {current.weather.description}
             </div>
             <div className="text-sm text-muted-foreground">
