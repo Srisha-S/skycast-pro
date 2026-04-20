@@ -202,7 +202,7 @@ function SkyCastPro() {
           />
         </aside>
 
-        <div className="flex flex-col gap-4 sm:gap-6">
+        <div className="flex flex-col gap-4 sm:gap-6 min-w-0">
           {error && (
             <div className="rounded-2xl border border-destructive/40 bg-destructive/15 text-destructive px-4 py-3 text-sm">
               {error}
