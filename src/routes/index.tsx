@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Cloud, Github } from "lucide-react";
+import { Cloud } from "lucide-react";
 
 import { fetchWeather } from "@/lib/weather.functions";
 import type { GeoLocation, Units, WeatherBundle } from "@/lib/weather-types";
@@ -244,10 +244,6 @@ function SkyCastPro() {
             )
           )}
 
-          <footer className="text-center text-xs text-muted-foreground pt-4 pb-2 inline-flex items-center justify-center gap-1.5">
-            <Github className="h-3.5 w-3.5" />
-            Powered by Open-Meteo
-          </footer>
         </div>
       </div>
 
