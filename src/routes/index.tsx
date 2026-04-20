@@ -92,16 +92,9 @@ function SkyCastPro() {
     if (autoRanRef.current) return;
     autoRanRef.current = true;
     if (typeof window === "undefined") return;
-    if (!navigator.geolocation) {
-      void load({ mode: "city", city: "London" });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        void load({ mode: "coords", lat: pos.coords.latitude, lon: pos.coords.longitude }),
-      () => void load({ mode: "city", city: "London" }),
-      { timeout: 8000, maximumAge: 60_000 },
-    );
+    // Always load a default city immediately so the dashboard is populated.
+    // Geolocation is offered via the locate button in the search bar.
+    void load({ mode: "city", city: "London" });
   }, [load]);
 
   const handleGeolocate = useCallback(() => {
