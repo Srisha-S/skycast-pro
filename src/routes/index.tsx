@@ -188,7 +188,7 @@ function SkyCastPro() {
       </header>
 
       <div className="grid lg:grid-cols-[320px_1fr] gap-4 sm:gap-6">
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
+        <aside className="flex flex-col gap-4 min-w-0 lg:sticky lg:top-6 lg:self-start">
           <SearchBar
             loading={loading}
             onCity={(city) => void load({ mode: "city", city })}
