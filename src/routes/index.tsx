@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Cloud, Github } from "lucide-react";
+import { Cloud } from "lucide-react";
 
 import { fetchWeather } from "@/lib/weather.functions";
 import type { GeoLocation, Units, WeatherBundle } from "@/lib/weather-types";
