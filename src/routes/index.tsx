@@ -253,7 +253,7 @@ function SkyCastPro() {
 
           <footer className="text-center text-xs text-muted-foreground pt-4 pb-2 inline-flex items-center justify-center gap-1.5">
             <Github className="h-3.5 w-3.5" />
-            Powered by OpenWeatherMap • Built with Lovable
+            Powered by Open-Meteo • Built with Lovable
           </footer>
         </div>
       </div>
