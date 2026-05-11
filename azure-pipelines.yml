@@ -10,12 +10,9 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
-- task: NodeTool@0
-  inputs:
-    versionSpec: '18.x'
-  displayName: 'Install Node.js'
-
 - script: |
-    npm install
-    npm run build
-  displayName: 'Install and Build'
+    curl -fsSL https://bun.sh/install | bash
+    export PATH="$HOME/.bun/bin:$PATH"
+    bun install
+    bun run build
+  displayName: 'Install Bun and Build'
